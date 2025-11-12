@@ -1,10 +1,21 @@
 const multer = require('multer');
+const FormData = require('form-data');
+const fetch = require('node-fetch');
+const fs = require('fs');
 const path = require('path');
+
+// --- Configuration ---
+const PYTHON_API_URL = 'http://127.0.0.1:5001/predict';
+const UPLOADS_DIR = path.join(__dirname, '../uploads');
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, 'uploads/');
+    // Create uploads directory if it doesn't exist
+    if (!fs.existsSync(UPLOADS_DIR)) {
+      fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+    }
+    cb(null, UPLOADS_DIR);
   },
   filename: (req, file, cb) => {
     cb(null, `${Date.now()}-${file.originalname}`);
@@ -28,7 +39,7 @@ const upload = multer({
 }).single('image');
 
 const uploadImage = (req, res) => {
-  upload(req, res, (err) => {
+  upload(req, res, async (err) => {
     if (err) {
       return res.status(400).json({
         success: false,
@@ -42,49 +53,57 @@ const uploadImage = (req, res) => {
         message: 'No file uploaded'
       });
     }
+    
+    // File details
+    const filePath = req.file.path;
+    const imageType = req.body.imageType || 'crop';
 
-    const { imageType } = req.body; // 'crop' or 'animal'
+    try {
+      // 1. Prepare form data for Python API
+      const form = new FormData();
+      form.append('image', fs.createReadStream(filePath));
+      form.append('imageType', imageType);
 
-    // Simulate disease detection (you would integrate with your ML model here)
-    const detectionResult = simulateDiseaseDetection(imageType, req.file.filename);
+      // 2. Call Python ML API with timeout
+      const response = await fetch(PYTHON_API_URL, {
+        method: 'POST',
+        body: form,
+        timeout: 30000 // 30 second timeout
+      });
 
-    res.json({
-      success: true,
-      message: 'Image uploaded successfully',
-      filename: req.file.filename,
-      imageType: imageType,
-      detection: detectionResult
-    });
+      // 3. Process response from Python API
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        // Handle error response from Python API
+        return res.status(response.status || 500).json({ 
+          success: false, 
+          message: data.message || 'ML prediction failed' 
+        });
+      }
+
+      // 4. Return success response with prediction
+      res.json({
+        success: true,
+        message: data.message,
+        filename: data.filename,
+        imageType: data.imageType,
+        detection: data.detection
+      });
+
+    } catch (error) {
+      console.error('Python API Communication Error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Could not communicate with the ML analysis service. Make sure the Python API is running on port 5001.'
+      });
+    } finally {
+      // 5. Clean up local file after processing
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    }
   });
-};
-
-const simulateDiseaseDetection = (imageType, filename) => {
-  // This is a simulation - replace with actual ML model integration
-  const cropDiseases = [
-    { disease: 'Leaf Rust', confidence: 0.85, treatment: 'Apply fungicide and remove affected leaves' },
-    { disease: 'Powdery Mildew', confidence: 0.72, treatment: 'Improve air circulation and apply sulfur-based fungicide' },
-    { disease: 'Blight', confidence: 0.68, treatment: 'Remove infected plants and apply copper fungicide' },
-    { disease: 'Healthy', confidence: 0.95, treatment: 'No action needed' }
-  ];
-
-  const animalDiseases = [
-    { disease: 'Foot Rot', confidence: 0.78, treatment: 'Isolate animal and consult veterinarian' },
-    { disease: 'Mastitis', confidence: 0.82, treatment: 'Antibiotic treatment and proper milking hygiene' },
-    { disease: 'Healthy', confidence: 0.92, treatment: 'No action needed' }
-  ];
-
-  const diseases = imageType === 'crop' ? cropDiseases : animalDiseases;
-  const randomDisease = diseases[Math.floor(Math.random() * diseases.length)];
-
-  return {
-    detected: randomDisease.disease !== 'Healthy',
-    disease: randomDisease.disease,
-    confidence: randomDisease.confidence,
-    treatment: randomDisease.treatment,
-    message: randomDisease.disease === 'Healthy' 
-      ? `The ${imageType} appears healthy!` 
-      : `Possible ${randomDisease.disease} detected (${(randomDisease.confidence * 100).toFixed(1)}% confidence)`
-  };
 };
 
 module.exports = {

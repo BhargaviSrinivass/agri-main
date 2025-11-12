@@ -1,5 +1,5 @@
 const axios = require('axios');
-
+require('dotenv').config();
 const getWeather = async (req, res) => {
   try {
     const { lat, lon } = req.query;

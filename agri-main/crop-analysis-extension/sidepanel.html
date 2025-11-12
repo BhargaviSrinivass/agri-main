@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🌿 Crop Analyzer</h1>
+      <p>Drag & drop images from any website</p>
+      <div class="tip">
+        <small>💡 Sidebar stays open while dragging!</small>
+      </div>
+    </div>
+
+    <!-- Drag & Drop Area -->
+    <div class="upload-area" id="uploadArea">
+      <div class="upload-content">
+        <div class="upload-icon">📁</div>
+        <p>Drop image here from any website</p>
+        <p class="subtext">(Google Images, news sites, etc.)</p>
+        <button id="fileUploadBtn">Or Select File</button>
+        <input type="file" id="fileInput" accept="image/*" hidden>
+      </div>
+    </div>
+
+    <!-- Image Preview -->
+    <div class="image-preview" id="imagePreview" style="display: none;">
+      <img id="previewImage" src="" alt="Preview">
+      <div class="preview-buttons">
+        <button id="analyzeBtn" class="analyze-btn">🔍 Analyze Image</button>
+        <button id="changeImage" class="change-btn">Change Image</button>
+      </div>
+    </div>
+
+    <!-- Loading -->
+    <div class="loading" id="loading" style="display: none;">
+      <div class="spinner"></div>
+      <p>Analyzing image...</p>
+    </div>
+
+    <!-- Results -->
+    <div class="results" id="results" style="display: none;">
+      <h3>Analysis Results</h3>
+      <div class="result-card" id="resultCard">
+        <div class="result-header">
+          <span id="resultIcon">✅</span>
+          <span id="resultTitle">Healthy Plant</span>
+        </div>
+        <div class="result-details">
+          <p><strong>Status:</strong> <span id="resultStatus">Healthy</span></p>
+          <p><strong>Confidence:</strong> <span id="resultConfidence">95%</span></p>
+          <p><strong>Treatment:</strong> <span id="resultTreatment">No action needed</span></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Error -->
+    <div class="error" id="error" style="display: none;">
+      <p>❌ <span id="errorMessage">Analysis failed</span></p>
+    </div>
+
+    <!-- URL Input as Fallback -->
+    <div class="url-input-area">
+      <details>
+        <summary>📥 Or paste image URL</summary>
+        <input type="text" id="imageUrlInput" placeholder="Paste image URL here">
+        <div class="url-buttons">
+          <button id="loadUrlBtn">Load Image</button>
+          <button id="clearUrlBtn">Clear</button>
+        </div>
+      </details>
+    </div>
+
+    <div class="footer">
+      <p>Powered by your AI model</p>
+    </div>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

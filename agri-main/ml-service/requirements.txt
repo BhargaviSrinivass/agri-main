@@ -1,0 +1,6 @@
+torch
+torchvision
+numpy
+matplotlib
+Pillow
+Flask # We'll use Flask to create a simple API
