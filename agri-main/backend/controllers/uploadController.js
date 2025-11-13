@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 
 // --- Configuration ---
-const PYTHON_API_URL = 'http://127.0.0.1:5001/predict';
+// Removed static PYTHON_API_URL to make it dynamic
 const UPLOADS_DIR = path.join(__dirname, '../uploads');
 
 // Configure multer for file uploads
@@ -56,15 +56,26 @@ const uploadImage = (req, res) => {
     
     // File details
     const filePath = req.file.path;
-    const imageType = req.body.imageType || 'crop';
+    const imageType = req.body.imageType || 'crop'; // 'crop' or 'animal' (for cattle)
 
+    // *** FIX: Determine the correct API URL based on imageType ***
+    let apiPort;
+    if (imageType.toLowerCase() === 'animal') {
+      apiPort = 5002; // Port for Livestock/Cattle API
+    } else {
+      apiPort = 5001; // Port for Crop API
+    }
+    
+    const PYTHON_API_URL = `http://127.0.0.1:${apiPort}/predict`;
+    // *** END FIX ***
+    
     try {
       // 1. Prepare form data for Python API
       const form = new FormData();
       form.append('image', fs.createReadStream(filePath));
       form.append('imageType', imageType);
 
-      // 2. Call Python ML API with timeout
+      // 2. Call Python ML API with the dynamic URL
       const response = await fetch(PYTHON_API_URL, {
         method: 'POST',
         body: form,
@@ -95,7 +106,7 @@ const uploadImage = (req, res) => {
       console.error('Python API Communication Error:', error);
       res.status(500).json({
         success: false,
-        message: 'Could not communicate with the ML analysis service. Make sure the Python API is running on port 5001.'
+        message: `Could not communicate with the ML analysis service. Make sure the Python API for ${imageType.toUpperCase()} is running on port ${apiPort}.`
       });
     } finally {
       // 5. Clean up local file after processing

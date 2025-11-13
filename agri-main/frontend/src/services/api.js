@@ -6,22 +6,27 @@ const NODE_API = axios.create({
   timeout: 10000,
 });
 
-// Flask backend (ML model)
-const ML_API = axios.create({
-  baseURL: 'http://127.0.0.1:5001',
-  timeout: 30000, // Longer timeout for ML processing
-});
+// Remove the hardcoded ML_API and create dynamic instances instead
+const createMLAPI = (port) => {
+  return axios.create({
+    baseURL: `http://127.0.0.1:${port}`,
+    timeout: 30000, // Longer timeout for ML processing
+  });
+};
 
 // Add response interceptor for better error handling
-ML_API.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.code === 'ECONNREFUSED') {
-      error.message = 'ML Service is not running. Please start the Python API on port 5001.';
+const addMLInterceptor = (apiInstance) => {
+  apiInstance.interceptors.response.use(
+    (response) => response,
+    (error) => {
+      if (error.code === 'ECONNREFUSED') {
+        error.message = 'ML Service is not running. Please start the Python API.';
+      }
+      return Promise.reject(error);
     }
-    return Promise.reject(error);
-  }
-);
+  );
+  return apiInstance;
+};
 
 export const authAPI = {
   signup: (userData) => NODE_API.post('/auth/signup', userData),
@@ -32,18 +37,28 @@ export const weatherAPI = {
   getWeather: (lat, lon) => NODE_API.get(`/weather?lat=${lat}&lon=${lon}`),
 };
 
+// FIXED: Dynamic upload API that uses the correct port based on imageType
 export const uploadAPI = {
-  uploadImage: (formData) =>
-    ML_API.post('/predict', formData, {
+  uploadImage: (formData) => {
+    // Get the imageType from formData to determine which port to use
+    const imageType = formData.get('imageType');
+    const port = imageType === 'animal' ? 5002 : 5001;
+    
+    const mlApi = addMLInterceptor(createMLAPI(port));
+    return mlApi.post('/predict', formData, {
       headers: { 
         'Content-Type': 'multipart/form-data',
       },
-    }),
+    });
+  },
 };
 
-// Add a method to check ML API status
+// Method to check specific ML API status
 export const mlStatusAPI = {
-  checkStatus: () => ML_API.get('/status'),
+  checkStatus: (port = 5001) => {
+    const mlApi = createMLAPI(port);
+    return mlApi.get('/');
+  },
 };
 
 export default { authAPI, weatherAPI, uploadAPI, mlStatusAPI };

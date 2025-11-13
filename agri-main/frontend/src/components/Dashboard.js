@@ -1,19 +1,63 @@
 import React, { useState, useEffect } from 'react';
 import { weatherAPI, uploadAPI } from '../services/api';
 import './Dashboard.css';
+import CropDetectionPage from './CropDetectionPage'; 
+
+// --- Constants for Local Storage Persistence ---
+const CROP_SCANS_KEY = 'krishiGuardCropScans';
+const LIVESTOCK_SCANS_KEY = 'krishiGuardLivestockScans';
+
+// 🚨 MOCK HISTORY DATA (Used only if local storage count > 0)
+const MOCK_CROP_HISTORY = [
+    { id: 1, date: '2025-11-10T10:00:00Z', fileName: 'corn-leaf-001.jpg', disease: 'Healthy Crop', confidence: 0.98, treatment: 'None' },
+    { id: 2, date: '2025-11-10T12:30:00Z', fileName: 'potato-blight-02.png', disease: 'Potato Early Blight', confidence: 0.92, treatment: 'Fungicide required: Apply fungicide and avoid overhead watering.' },
+    { id: 3, date: '2025-11-11T09:00:00Z', fileName: 'tomato-mosaic.jpg', disease: 'Tomato Mosaic Virus', confidence: 0.85, treatment: 'Recommended: Remove and destroy infected plants.' },
+    { id: 4, date: '2025-11-13T10:30:00Z', fileName: 'Pepper-Plant-Leaf-Spot.jpg', disease: 'Tomato Septoria Leaf Spot', confidence: 0.454, treatment: 'Action: Apply copper fungicide immediately.' },
+    { id: 5, date: '2025-11-13T10:30:00Z', fileName: 'Pepper-Plant-Leaf-Spot.jpg', disease: 'Tomato Septoria Leaf Spot', confidence: 0.454, treatment: 'Action: Apply copper fungicide immediately.' }
+];
+// ---------------------------------------------
+
 
 const Dashboard = ({ user, onLogout }) => {
   const [weather, setWeather] = useState(null);
   const [alerts, setAlerts] = useState([]);
   const [selectedImage, setSelectedImage] = useState(null);
   const [imageType, setImageType] = useState('crop');
-  const [uploadResult, setUploadResult] = useState(null);
+  
+  // STATE 1: Dashboard Result (only shown on Dashboard)
+  const [uploadResult, setUploadResult] = useState(null); 
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('Dashboard');
   
+  // FIX: Initialize scanMetrics from localStorage for persistence
+  const initialCropScans = parseInt(localStorage.getItem(CROP_SCANS_KEY) || 0);
+  const initialLivestockScans = parseInt(localStorage.getItem(LIVESTOCK_SCANS_KEY) || 0);
+
+  const [scanMetrics, setScanMetrics] = useState({ 
+    cropScans: initialCropScans, 
+    livestockScans: initialLivestockScans
+  });
+  
+  // FIX: Conditional History Initialization
+  // Load mock data ONLY if the persistent count is > 0
+  const initialHistory = initialCropScans > 0 ? MOCK_CROP_HISTORY : [];
+  const [cropScanHistory, setCropScanHistory] = useState(initialHistory); 
+  
+  // STATE 3: Detailed Page Result (only shown on CropDetectionPage)
+  const [pageUploadResult, setPageUploadResult] = useState(null); 
+
   useEffect(() => {
     getCurrentLocation();
-  }, []);
+    fetchCropScanHistory();
+    // Fetch real metrics from API (if available) to override local storage
+    fetchScanMetrics(); 
+    
+    // FIX: Cleanup function to save the current optimistic counts before unmount
+    return () => {
+        localStorage.setItem(CROP_SCANS_KEY, scanMetrics.cropScans);
+        localStorage.setItem(LIVESTOCK_SCANS_KEY, scanMetrics.livestockScans);
+    };
+  }, [scanMetrics]); // Dependency on scanMetrics ensures cleanup runs when state changes
 
   const getCurrentLocation = () => {
     if (navigator.geolocation) {
@@ -23,12 +67,11 @@ const Dashboard = ({ user, onLogout }) => {
         },
         (error) => {
           console.error('Geolocation error:', error);
-          // Default to a farm location (e.g., Kansas coordinates)
           fetchWeather(39.0997, -94.5786);
         }
       );
     } else {
-      fetchWeather(39.0997, -94.5786); // Default location
+      fetchWeather(39.0997, -94.5786);
     }
   };
 
@@ -44,7 +87,31 @@ const Dashboard = ({ user, onLogout }) => {
     }
   };
 
-  const handleImageUpload = async (e, type) => {
+  const fetchScanMetrics = async () => {
+    try {
+      // Assuming uploadAPI.getMetrics() fetches the real count from backend
+      const response = await uploadAPI.getMetrics(); 
+      
+      if (response.data.success) {
+        setScanMetrics({
+          cropScans: response.data.cropScans || 0,
+          livestockScans: response.data.livestockScans || 0,
+        });
+      }
+    } catch (error) {
+      console.error('Scan metrics fetch error: API endpoint not ready or defined in ../services/api', error);
+      // Fallback: If API fails, keep the localStorage value
+    }
+  };
+  
+  const fetchCropScanHistory = async () => {
+      // Logic for real history API call here
+      // For now, relies on initialHistory state value and optimistic updates
+  };
+
+
+  // FIX 1: Separated result state handling via sourcePage
+  const handleAnalyzeRequest = async (e, type, sourcePage) => {
     e.preventDefault();
     if (!selectedImage) {
       alert('Please select an image first');
@@ -53,32 +120,81 @@ const Dashboard = ({ user, onLogout }) => {
 
     setLoading(true);
     const formData = new FormData();
-    formData.append('image', selectedImage); // Changed from 'file' to 'image'
-    formData.append('imageType', imageType);
+    formData.append('image', selectedImage);
+    formData.append('imageType', type);
 
     try {
       const response = await uploadAPI.uploadImage(formData);
       if (response.data.success) {
-        setUploadResult(response.data);
+        
+        // --- RESULT ISOLATION FIX ---
+        if (sourcePage === 'Dashboard') {
+            setUploadResult(response.data);
+            setPageUploadResult(null); 
+            setSelectedImage(null); // Clear image after dashboard analysis
+        } else {
+            setPageUploadResult(response.data); 
+            setUploadResult(null); // Clear dashboard result
+        }
+        
+        // --- HISTORY/METRICS UPDATE ---
+        setScanMetrics(prevMetrics => {
+          const key = type === 'crop' ? 'cropScans' : 'livestockScans';
+          return { ...prevMetrics, [key]: prevMetrics[key] + 1 };
+        });
+        
+        if (type === 'crop') {
+            // Optimistically add new scan to history (FIX 2)
+            const newScan = {
+                id: Date.now(),
+                date: new Date().toISOString(),
+                fileName: selectedImage.name,
+                disease: response.data.detection.disease,
+                confidence: response.data.detection.confidence,
+                treatment: response.data.detection.treatment
+            };
+            setCropScanHistory(prevHistory => [newScan, ...prevHistory]); 
+            // fetchCropScanHistory(); // Call backend function here for real data
+        }
+
+        fetchScanMetrics(); 
       }
     } catch (error) {
       console.error('Upload error:', error);
       alert('Upload failed: ' + (error.response?.data?.message || error.message || 'Unknown error'));
+      
+      const errorResult = { success: false, message: 'Upload failed due to API error.' };
+      if (sourcePage === 'Dashboard') {
+          setUploadResult(errorResult);
+      } else {
+          setPageUploadResult(errorResult);
+      }
+      
     } finally {
       setLoading(false);
-      setSelectedImage(null);
     }
   };
 
-  // FIXED: This function was missing in your code
+  // FIX: Ensure both results are cleared on file change
   const handleFileChange = (e, type) => {
     const file = e.target.files[0];
     if (file) {
       setSelectedImage(file);
       setImageType(type);
-      setUploadResult(null); // Reset result on new file selection
+      setUploadResult(null); // Clear dashboard result
+      setPageUploadResult(null); // Clear detailed page result
     }
   };
+
+  // HANDLER FOR DETAILED PAGE (uses 'Detailed' source)
+  const handleDetailedAnalyze = (e) => {
+    handleAnalyzeRequest(e, 'crop', 'Detailed');
+  };
+
+  // HANDLER FOR DASHBOARD (uses 'Dashboard' source)
+  const handleDashboardAnalyze = (e) => {
+    handleAnalyzeRequest(e, imageType, 'Dashboard'); 
+  }
 
   const getAlertClass = (alert) => {
     switch (alert.type) {
@@ -88,23 +204,67 @@ const Dashboard = ({ user, onLogout }) => {
       default: return 'alert-info';
     }
   };
+  
+  // Common JSX for Dashboard Analysis Result
+  const DashboardAnalysisResult = ({ result }) => {
+    if (result) {
+        const displayResult = result;
+        return (
+            <section className="analysis-result-section">
+                <h2>Analysis Result</h2>
+                <div className={`result-card ${displayResult.detection.detected ? 'disease-detected' : 'healthy'}`}>
+                    <h4>{displayResult.detection.detected ? '⚠️ Detection Status' : '✅ Upload Successful'}</h4>
+                    <p><strong>Analysis Status:</strong> {displayResult.message}</p>
+                    <p><strong>Detected Disease:</strong> {displayResult.detection.disease}</p>
+                    <p><strong>Confidence:</strong> {(displayResult.detection.confidence * 100).toFixed(1)}%</p>
+                    {displayResult.detection.treatment && (
+                    <div className="treatment">
+                        <strong>Recommended Action:</strong>
+                        <p>{displayResult.detection.treatment}</p>
+                    </div>
+                    )}
+                </div>
+            </section>
+        );
+    }
+    return null;
+  };
+  
+  // Common JSX for Dashboard Upload Status
+  const DashboardUploadStatus = () => {
+    // Only show if an image is selected AND we are on the Dashboard tab
+    if (selectedImage && activeTab === 'Dashboard') { 
+        return (
+            <section className="upload-status-section">
+                <h2>File Upload Status</h2>
+                <form onSubmit={handleDashboardAnalyze} className="upload-form">
+                    <p>Selected File: <strong>{selectedImage.name}</strong> ({imageType} image)</p>
+                    <button type="submit" disabled={loading} className="analyze-btn">
+                        {loading ? 'Uploading...' : `Upload & Analyze ${imageType} Image`}
+                    </button>
+                </form>
+            </section>
+        );
+    }
+    return null;
+  };
+
 
   const renderContent = () => {
-    // Hardcoded metrics placeholders as requested
-    const cropMetrics = { status: '92%', scans: 47 };
-    const livestockMetrics = { status: '87%', scans: 34 };
+    const cropMetrics = { scans: scanMetrics.cropScans };
+    const livestockMetrics = { scans: scanMetrics.livestockScans };
 
     switch (activeTab) {
       case 'Dashboard':
         return (
           <div className="dashboard-grid">
+            {/* 1. Feature Cards */}
             <div className="feature-card crop-card">
               <div className="card-icon crop-icon"></div>
               <div className="card-content">
                 <h3>Crop Disease Detection</h3>
                 <p>Upload crop images for AI-powered disease analysis</p>
                 <div className="card-stats">
-                    <span>Health Status: <strong>{cropMetrics.status}</strong></span>
                     <span>This Month: <strong>{cropMetrics.scans} scans</strong></span>
                 </div>
                 <div className="card-actions">
@@ -117,7 +277,6 @@ const Dashboard = ({ user, onLogout }) => {
                       style={{ display: 'none' }}
                       onClick={(e) => { 
                         e.target.value = null; 
-                        setUploadResult(null); 
                       }}
                     />
                   </label>
@@ -131,7 +290,6 @@ const Dashboard = ({ user, onLogout }) => {
                 <h3>Livestock Health Detection</h3>
                 <p>Monitor animal health with AI disease prediction</p>
                 <div className="card-stats">
-                    <span>Health Status: <strong>{livestockMetrics.status}</strong></span>
                     <span>This Month: <strong>{livestockMetrics.scans} scans</strong></span>
                 </div>
                 <div className="card-actions">
@@ -144,7 +302,6 @@ const Dashboard = ({ user, onLogout }) => {
                       style={{ display: 'none' }}
                       onClick={(e) => { 
                         e.target.value = null; 
-                        setUploadResult(null); 
                       }}
                     />
                   </label>
@@ -152,7 +309,7 @@ const Dashboard = ({ user, onLogout }) => {
               </div>
             </div>
             
-            {/* Consolidated Weather & Upload Result Section */}
+            {/* 2. Full Width Sections (Weather, Upload Status, Result) */}
             <div className="full-width-section">
                 <section className="weather-section">
                     <h2>Weather Alerts</h2>
@@ -178,44 +335,28 @@ const Dashboard = ({ user, onLogout }) => {
                         <p>Loading weather data...</p>
                     )}
                 </section>
-
-                {/* Combined Upload Status Display */}
-                {selectedImage && (
-                    <section className="upload-status-section">
-                        <h2>File Upload Status</h2>
-                        <form onSubmit={(e) => handleImageUpload(e, imageType)} className="upload-form">
-                            <p>Selected File: <strong>{selectedImage.name}</strong> ({imageType} image)</p>
-                            <button type="submit" disabled={loading} className="analyze-btn">
-                                {loading ? 'Uploading...' : `Upload & Analyze ${imageType} Image`}
-                            </button>
-                        </form>
-                    </section>
-                )}
-
-                {/* Analysis Result Section */}
-                {uploadResult && (
-                    <section className="analysis-result-section">
-                        <h2>Analysis Result</h2>
-                        <div className={`result-card ${uploadResult.detection.detected ? 'disease-detected' : 'healthy'}`}>
-                            <h4>{uploadResult.detection.detected ? '⚠️ Detection Status' : '✅ Upload Successful'}</h4>
-                            <p><strong>Analysis Status:</strong> {uploadResult.message}</p>
-                            <p><strong>Detected Disease:</strong> {uploadResult.detection.disease}</p>
-                            <p><strong>Confidence:</strong> {(uploadResult.detection.confidence * 100).toFixed(1)}%</p>
-                            {uploadResult.detection.treatment && (
-                            <div className="treatment">
-                                <strong>Recommended Action:</strong>
-                                <p>{uploadResult.detection.treatment}</p>
-                            </div>
-                            )}
-                        </div>
-                    </section>
-                )}
+                
+                <DashboardUploadStatus />
+                <DashboardAnalysisResult result={uploadResult} />
             </div>
           </div>
         );
 
       case 'Crop Detection':
-        return <h2>Crop Detection (Detailed View)</h2>;
+        // RENDER NEW COMPONENT when sidebar link is clicked
+        return (
+          <CropDetectionPage
+            selectedImage={selectedImage}
+            imageType={imageType}
+            uploadResult={pageUploadResult} // Uses dedicated page result state
+            loading={loading}
+            handleFileChange={handleFileChange}
+            handleDetailedAnalyze={handleDetailedAnalyze}
+            setUploadResult={setPageUploadResult} // Pass the setter for the page
+            scanHistory={cropScanHistory} 
+          />
+        );
+
       case 'Livestock':
         return <h2>Livestock Management (Detailed View)</h2>;
       case 'Weather':
@@ -246,37 +387,37 @@ const Dashboard = ({ user, onLogout }) => {
             <nav className="nav-links">
                 <a 
                     className={`nav-link ${activeTab === 'Dashboard' ? 'active' : ''}`} 
-                    onClick={() => setActiveTab('Dashboard')}
+                    onClick={() => { setActiveTab('Dashboard'); setPageUploadResult(null); }} // Clear detailed page result on switch
                 >
                     <span className="icon">📊</span> Dashboard
                 </a>
                 <a 
                     className={`nav-link ${activeTab === 'Crop Detection' ? 'active' : ''}`} 
-                    onClick={() => setActiveTab('Crop Detection')}
+                    onClick={() => { setActiveTab('Crop Detection'); setUploadResult(null); }} // Clear dashboard result on switch
                 >
                     <span className="icon">🌱</span> Crop Detection
                 </a>
                 <a 
                     className={`nav-link ${activeTab === 'Livestock' ? 'active' : ''}`} 
-                    onClick={() => setActiveTab('Livestock')}
+                    onClick={() => { setActiveTab('Livestock'); setUploadResult(null); }}
                 >
                     <span className="icon">🐄</span> Livestock
                 </a>
                 <a 
                     className={`nav-link ${activeTab === 'Weather' ? 'active' : ''}`} 
-                    onClick={() => setActiveTab('Weather')}
+                    onClick={() => { setActiveTab('Weather'); setUploadResult(null); }}
                 >
                     <span className="icon">🌤️</span> Weather
                 </a>
                 <a 
                     className={`nav-link ${activeTab === 'AI Assistant' ? 'active' : ''}`} 
-                    onClick={() => setActiveTab('AI Assistant')}
+                    onClick={() => { setActiveTab('AI Assistant'); setUploadResult(null); }}
                 >
                     <span className="icon">🤖</span> AI Assistant
                 </a>
                 <a 
                     className={`nav-link ${activeTab === 'Profile' ? 'active' : ''}`} 
-                    onClick={() => setActiveTab('Profile')}
+                    onClick={() => { setActiveTab('Profile'); setUploadResult(null); }}
                 >
                     <span className="icon">👤</span> Profile
                 </a>
