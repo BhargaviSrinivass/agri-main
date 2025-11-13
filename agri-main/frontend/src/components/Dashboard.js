@@ -2,21 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { weatherAPI, uploadAPI } from '../services/api';
 import './Dashboard.css';
 import CropDetectionPage from './CropDetectionPage'; 
+import LivestockDetectionPage from './LivestockDetectionPage'; 
 
 // --- Constants for Local Storage Persistence ---
 const CROP_SCANS_KEY = 'krishiGuardCropScans';
 const LIVESTOCK_SCANS_KEY = 'krishiGuardLivestockScans';
-
-// 🚨 MOCK HISTORY DATA (Used only if local storage count > 0)
-const MOCK_CROP_HISTORY = [
-    { id: 1, date: '2025-11-10T10:00:00Z', fileName: 'corn-leaf-001.jpg', disease: 'Healthy Crop', confidence: 0.98, treatment: 'None' },
-    { id: 2, date: '2025-11-10T12:30:00Z', fileName: 'potato-blight-02.png', disease: 'Potato Early Blight', confidence: 0.92, treatment: 'Fungicide required: Apply fungicide and avoid overhead watering.' },
-    { id: 3, date: '2025-11-11T09:00:00Z', fileName: 'tomato-mosaic.jpg', disease: 'Tomato Mosaic Virus', confidence: 0.85, treatment: 'Recommended: Remove and destroy infected plants.' },
-    { id: 4, date: '2025-11-13T10:30:00Z', fileName: 'Pepper-Plant-Leaf-Spot.jpg', disease: 'Tomato Septoria Leaf Spot', confidence: 0.454, treatment: 'Action: Apply copper fungicide immediately.' },
-    { id: 5, date: '2025-11-13T10:30:00Z', fileName: 'Pepper-Plant-Leaf-Spot.jpg', disease: 'Tomato Septoria Leaf Spot', confidence: 0.454, treatment: 'Action: Apply copper fungicide immediately.' }
-];
-// ---------------------------------------------
-
 
 const Dashboard = ({ user, onLogout }) => {
   const [weather, setWeather] = useState(null);
@@ -38,26 +28,33 @@ const Dashboard = ({ user, onLogout }) => {
     livestockScans: initialLivestockScans
   });
   
-  // FIX: Conditional History Initialization
-  // Load mock data ONLY if the persistent count is > 0
-  const initialHistory = initialCropScans > 0 ? MOCK_CROP_HISTORY : [];
-  const [cropScanHistory, setCropScanHistory] = useState(initialHistory); 
-  
-  // STATE 3: Detailed Page Result (only shown on CropDetectionPage)
+  // History arrays initialized as empty.
+  const [cropScanHistory, setCropScanHistory] = useState([]); 
+  const [livestockScanHistory, setLivestockScanHistory] = useState([]); 
+
+  // STATE 3: Detailed Page Result (only shown on CropDetectionPage/Livestock)
   const [pageUploadResult, setPageUploadResult] = useState(null); 
 
   useEffect(() => {
     getCurrentLocation();
-    fetchCropScanHistory();
-    // Fetch real metrics from API (if available) to override local storage
     fetchScanMetrics(); 
     
-    // FIX: Cleanup function to save the current optimistic counts before unmount
+    // 🚨 NEW FIX: Synchronize local storage count with empty history arrays on load
+    if (initialCropScans > 0 && cropScanHistory.length === 0) {
+        setScanMetrics(prev => ({ ...prev, cropScans: 0 }));
+        localStorage.setItem(CROP_SCANS_KEY, 0);
+    }
+    if (initialLivestockScans > 0 && livestockScanHistory.length === 0) {
+        setScanMetrics(prev => ({ ...prev, livestockScans: 0 }));
+        localStorage.setItem(LIVESTOCK_SCANS_KEY, 0);
+    }
+
+    // Cleanup function to save the current optimistic counts before unmount
     return () => {
         localStorage.setItem(CROP_SCANS_KEY, scanMetrics.cropScans);
         localStorage.setItem(LIVESTOCK_SCANS_KEY, scanMetrics.livestockScans);
     };
-  }, [scanMetrics]); // Dependency on scanMetrics ensures cleanup runs when state changes
+  }, [scanMetrics]); 
 
   const getCurrentLocation = () => {
     if (navigator.geolocation) {
@@ -100,14 +97,12 @@ const Dashboard = ({ user, onLogout }) => {
       }
     } catch (error) {
       console.error('Scan metrics fetch error: API endpoint not ready or defined in ../services/api', error);
-      // Fallback: If API fails, keep the localStorage value
     }
   };
   
-  const fetchCropScanHistory = async () => {
-      // Logic for real history API call here
-      // For now, relies on initialHistory state value and optimistic updates
-  };
+  // History fetch functions are stubs for your API implementation
+  const fetchCropScanHistory = async () => {};
+  const fetchLivestockScanHistory = async () => {};
 
 
   // FIX 1: Separated result state handling via sourcePage
@@ -131,10 +126,10 @@ const Dashboard = ({ user, onLogout }) => {
         if (sourcePage === 'Dashboard') {
             setUploadResult(response.data);
             setPageUploadResult(null); 
-            setSelectedImage(null); // Clear image after dashboard analysis
+            setSelectedImage(null); 
         } else {
             setPageUploadResult(response.data); 
-            setUploadResult(null); // Clear dashboard result
+            setUploadResult(null); 
         }
         
         // --- HISTORY/METRICS UPDATE ---
@@ -143,18 +138,20 @@ const Dashboard = ({ user, onLogout }) => {
           return { ...prevMetrics, [key]: prevMetrics[key] + 1 };
         });
         
+        // Optimistically add new scan to history 
+        const newScan = {
+            id: Date.now(),
+            date: new Date().toISOString(),
+            fileName: selectedImage.name,
+            disease: response.data.detection.disease,
+            confidence: response.data.detection.confidence,
+            treatment: response.data.detection.treatment
+        };
+
         if (type === 'crop') {
-            // Optimistically add new scan to history (FIX 2)
-            const newScan = {
-                id: Date.now(),
-                date: new Date().toISOString(),
-                fileName: selectedImage.name,
-                disease: response.data.detection.disease,
-                confidence: response.data.detection.confidence,
-                treatment: response.data.detection.treatment
-            };
             setCropScanHistory(prevHistory => [newScan, ...prevHistory]); 
-            // fetchCropScanHistory(); // Call backend function here for real data
+        } else if (type === 'animal') {
+            setLivestockScanHistory(prevHistory => [newScan, ...prevHistory]);
         }
 
         fetchScanMetrics(); 
@@ -186,12 +183,17 @@ const Dashboard = ({ user, onLogout }) => {
     }
   };
 
-  // HANDLER FOR DETAILED PAGE (uses 'Detailed' source)
+  // HANDLER FOR CROP DETAILED PAGE
   const handleDetailedAnalyze = (e) => {
     handleAnalyzeRequest(e, 'crop', 'Detailed');
   };
 
-  // HANDLER FOR DASHBOARD (uses 'Dashboard' source)
+  // NEW HANDLER FOR LIVESTOCK DETAILED PAGE
+  const handleLivestockAnalyze = (e) => {
+    handleAnalyzeRequest(e, 'animal', 'Detailed');
+  };
+
+  // HANDLER FOR DASHBOARD
   const handleDashboardAnalyze = (e) => {
     handleAnalyzeRequest(e, imageType, 'Dashboard'); 
   }
@@ -232,7 +234,6 @@ const Dashboard = ({ user, onLogout }) => {
   
   // Common JSX for Dashboard Upload Status
   const DashboardUploadStatus = () => {
-    // Only show if an image is selected AND we are on the Dashboard tab
     if (selectedImage && activeTab === 'Dashboard') { 
         return (
             <section className="upload-status-section">
@@ -343,7 +344,7 @@ const Dashboard = ({ user, onLogout }) => {
         );
 
       case 'Crop Detection':
-        // RENDER NEW COMPONENT when sidebar link is clicked
+        // RENDER CROP COMPONENT
         return (
           <CropDetectionPage
             selectedImage={selectedImage}
@@ -358,7 +359,20 @@ const Dashboard = ({ user, onLogout }) => {
         );
 
       case 'Livestock':
-        return <h2>Livestock Management (Detailed View)</h2>;
+        // RENDER NEW LIVESTOCK COMPONENT
+        return (
+          <LivestockDetectionPage
+            selectedImage={selectedImage}
+            imageType={imageType}
+            uploadResult={pageUploadResult} 
+            loading={loading}
+            handleFileChange={handleFileChange}
+            handleDetailedAnalyze={handleLivestockAnalyze} // Pass the new handler
+            setUploadResult={setPageUploadResult} 
+            livestockScanHistory={livestockScanHistory} // Pass livestock history
+          />
+        );
+
       case 'Weather':
         return <h2>Weather Forecast (Detailed View)</h2>;
       case 'AI Assistant':
