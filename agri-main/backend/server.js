@@ -47,7 +47,18 @@ app.use((error, req, res, next) => {
     message: 'Something went wrong!' 
   });
 });
-
+// Add this with other route imports
+const aiAssistantRoutes = require('./routes/aiAssistantRoutes');
+// Add this route for testing
+app.get('/api/test', (req, res) => {
+  res.json({ 
+    success: true,
+    message: 'Backend is running!',
+    timestamp: new Date().toISOString()
+  });
+});
+// Add this with other route middleware
+app.use('/api/ai-assistant', aiAssistantRoutes);
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📍 API: http://localhost:${PORT}`);

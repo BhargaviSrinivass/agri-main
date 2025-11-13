@@ -60,5 +60,8 @@ export const mlStatusAPI = {
     return mlApi.get('/');
   },
 };
-
+// Add to your existing API exports
+export const aiAssistantAPI = {
+  chat: (message, history) => NODE_API.post('/ai-assistant/chat', { message, history }),
+};
 export default { authAPI, weatherAPI, uploadAPI, mlStatusAPI };

@@ -3,3 +3,8 @@ node_modules/
 *.log
 uploads/
 temp/
+# .gitignore
+node_modules/
+.env
+.DS_Store
+uploads/

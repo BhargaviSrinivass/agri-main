@@ -3,7 +3,7 @@ import { weatherAPI, uploadAPI } from '../services/api';
 import './Dashboard.css';
 import CropDetectionPage from './CropDetectionPage'; 
 import LivestockDetectionPage from './LivestockDetectionPage'; 
-
+import AIAssistant from './AIAssistant';
 // --- Constants for Local Storage Persistence ---
 const CROP_SCANS_KEY = 'krishiGuardCropScans';
 const LIVESTOCK_SCANS_KEY = 'krishiGuardLivestockScans';
@@ -37,7 +37,7 @@ const Dashboard = ({ user, onLogout }) => {
 
   useEffect(() => {
     getCurrentLocation();
-    fetchScanMetrics(); 
+    //fetchScanMetrics(); 
     
     // 🚨 NEW FIX: Synchronize local storage count with empty history arrays on load
     if (initialCropScans > 0 && cropScanHistory.length === 0) {
@@ -358,6 +358,7 @@ const Dashboard = ({ user, onLogout }) => {
           />
         );
 
+
       case 'Livestock':
         // RENDER NEW LIVESTOCK COMPONENT
         return (
@@ -376,7 +377,11 @@ const Dashboard = ({ user, onLogout }) => {
       case 'Weather':
         return <h2>Weather Forecast (Detailed View)</h2>;
       case 'AI Assistant':
-        return <h2>AI Assistant (Chat/Query Interface)</h2>;
+  return (
+    <div className="ai-assistant-container">
+      <AIAssistant />
+    </div>
+  );
       case 'Profile':
         return (
             <section>
